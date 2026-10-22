@@ -19,7 +19,7 @@ The Discord calls for giving a role on purchase: a bot invite link, user sign-in
 - 🎭 **Roles** — `grant()` joins and gives the role whether or not they are a member; `remove_role()` counts 404 as removed.
 - 🏷️ **`Joined`** — Discord's two successes, read apart.
 - 🪪 **`DiscordBot` User-Agent** on every call, built by `Client::user_agent( $url, $version )`.
-- ❄️ **`Snowflake::of()`** — a server, role or user id, or `''` for whatever was pasted instead: a name, an invite link, a role mention.
+- ❄️ **`Snowflake::of()`** — a server, role or user id, or `''` for whatever was pasted instead: a name, an invite link, a role mention. Every bot call checks its ids the same way and sends nothing for one that is not, so an id of `..` cannot turn "remove this member's role" into "delete the role".
 
 ## Requirements
 
@@ -79,7 +79,7 @@ composer install
 composer test
 ```
 
-32 tests, all against `HttpClient\Fake` — nothing reaches Discord. The invite link's permission bits; the sign-in link with and without PKCE; the code and verifier exchange; a refused code; a new member joining with the role; an existing member given the role on its own; a refused join; removal with 404 as success; the User-Agent's shape on every call; the `#[\NoDiscard]` results; and which pasted values `Snowflake::of()` takes for an id.
+37 tests, all against `HttpClient\Fake` — nothing reaches Discord. The invite link's permission bits; the sign-in link with and without PKCE; the code and verifier exchange; a refused code; a new member joining with the role; an existing member given the role on its own; a refused join; removal with 404 as success; the User-Agent's shape on every call; the `#[\NoDiscard]` results; and which pasted values `Snowflake::of()` takes for an id.
 
 ## License
 
