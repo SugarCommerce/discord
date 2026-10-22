@@ -59,6 +59,8 @@ readonly class Client {
 	public const array SCOPES = array( 'identify', 'guilds.join' );
 
 	/**
+	 * Hold one application's credentials and the HTTP client to call with.
+	 *
 	 * @since 1.0.0
 	 *
 	 * @param string $client_id     Application id.
@@ -86,7 +88,30 @@ readonly class Client {
 	 * @return string `DiscordBot ($url, $version)`.
 	 */
 	public static function user_agent( string $url, string $version ): string {
-		return 'DiscordBot (' . str_replace( array( '(', ')', ',' ), '', $url ) . ', ' . str_replace( array( '(', ')', ',' ), '', $version ) . ')';
+		// Parentheses and commas would break Discord's format; control
+		// characters would break the header itself.
+		$clean = static fn ( string $part ): string => (string) preg_replace( '/[(),\x00-\x1F\x7F]/', '', $part );
+
+		return 'DiscordBot (' . $clean( $url ) . ', ' . $clean( $version ) . ')';
+	}
+
+	/**
+	 * What var_dump() and print_r() show: the credentials, redacted.
+	 *
+	 * #[\SensitiveParameter] keeps the secrets out of stack traces; this
+	 * keeps them out of a debug dump of the client itself.
+	 *
+	 * @since 1.1.0
+	 *
+	 * @return array<string, mixed>
+	 */
+	public function __debugInfo(): array {
+		return array(
+			'client_id'     => $this->client_id,
+			'client_secret' => '' === $this->client_secret ? '' : '[redacted]',
+			'bot_token'     => '' === $this->bot_token ? '' : '[redacted]',
+			'user_agent'    => $this->user_agent,
+		);
 	}
 
 	/**
@@ -174,14 +199,14 @@ readonly class Client {
 			array( 'Content-Type' => 'application/x-www-form-urlencoded', 'User-Agent' => $this->user_agent )
 		);
 
-		$token = (string) ( $response->ok ? ( $response->json()['access_token'] ?? '' ) : '' );
+		$token = $response->ok ? self::field( $response->json(), 'access_token' ) : '';
 
 		if ( '' === $token ) {
 			return null;
 		}
 
 		$me   = $this->http->get( self::API . '/users/@me', array( 'Authorization' => 'Bearer ' . $token, 'User-Agent' => $this->user_agent ) );
-		$user = (string) ( $me->ok ? ( $me->json()['id'] ?? '' ) : '' );
+		$user = Snowflake::of( $me->ok ? self::field( $me->json(), 'id' ) : '' );
 
 		return '' === $user ? null : new Identity( $user, $token );
 	}
@@ -196,9 +221,14 @@ readonly class Client {
 	 * @param string   $token Their access token, with `guilds.join`.
 	 * @param string[] $roles Role ids to join with.
 	 *
-	 * @return Joined Added; AlreadyMember, when the roles were ignored; or Failed.
+	 * @return Joined Added; AlreadyMember, when the roles were ignored; or
+	 *                Failed, including when an id is not a snowflake.
 	 */
 	public function add_member( string $guild, string $user, #[\SensitiveParameter] string $token, array $roles = array() ): Joined {
+		if ( ! self::ids( $guild, $user, ...$roles ) ) {
+			return Joined::Failed;
+		}
+
 		$response = $this->http->put(
 			self::API . '/guilds/' . rawurlencode( $guild ) . '/members/' . rawurlencode( $user ),
 			(string) json_encode( array( 'access_token' => $token ) + ( $roles ? array( 'roles' => array_values( $roles ) ) : array() ) ),
@@ -217,9 +247,14 @@ readonly class Client {
 	 * @param string $user  Their user id.
 	 * @param string $role  Role id.
 	 *
-	 * @return bool Whether they have it now.
+	 * @return bool Whether they have it now. False, without a call, when an
+	 *              id is not a snowflake.
 	 */
 	public function add_role( string $guild, string $user, string $role ): bool {
+		if ( ! self::ids( $guild, $user, $role ) ) {
+			return false;
+		}
+
 		return $this->http->put( $this->role_url( $guild, $user, $role ), '', $this->bot() )->ok;
 	}
 
@@ -233,9 +268,14 @@ readonly class Client {
 	 * @param string $role  Role id.
 	 *
 	 * @return bool True when it is gone, including when it already was.
+	 *              False, without a call, when an id is not a snowflake.
 	 */
 	#[\NoDiscard( 'False means they may still have the role.' )]
 	public function remove_role( string $guild, string $user, string $role ): bool {
+		if ( ! self::ids( $guild, $user, $role ) ) {
+			return false;
+		}
+
 		$response = $this->http->delete( $this->role_url( $guild, $user, $role ), $this->bot() );
 
 		// 404: they left, or the role was deleted. Either way they do not
@@ -262,6 +302,42 @@ readonly class Client {
 			Joined::AlreadyMember => $this->add_role( $guild, $user, $role ),
 			Joined::Failed        => false,
 		};
+	}
+
+	/**
+	 * Whether every id is a snowflake.
+	 *
+	 * The ids go into the path of a bot call, and rawurlencode() leaves a
+	 * `..` alone: a user id of `..` would turn "remove this member's role"
+	 * into DELETE /guilds/{guild}/roles/{role} — deleting the role for
+	 * everybody — once the dot segment is resolved.
+	 *
+	 * @param string ...$ids Discord ids.
+	 *
+	 * @return bool
+	 */
+	private static function ids( string ...$ids ): bool {
+		foreach ( $ids as $id ) {
+			if ( $id !== Snowflake::of( $id ) ) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	 * A string field of a decoded JSON object, or ''.
+	 *
+	 * @param mixed  $json Decoded response body.
+	 * @param string $key  Field name.
+	 *
+	 * @return string
+	 */
+	private static function field( mixed $json, string $key ): string {
+		$value = is_array( $json ) ? ( $json[ $key ] ?? '' ) : '';
+
+		return is_string( $value ) || is_int( $value ) ? (string) $value : '';
 	}
 
 	/**

@@ -1,6 +1,6 @@
 {
     "name": "sugarcommerce/discord",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "description": "The Discord calls for giving a role on purchase: a bot invite link, user sign-in with PKCE, adding a member with a role, and taking the role back, with the DiscordBot User-Agent the API requires.",
     "type": "library",
     "license": "GPL-2.0-or-later",

@@ -142,6 +142,35 @@ final class ClientTest extends TestCase {
 		$this->assertSame( $removed, $this->client( $http )->remove_role( self::GUILD, self::USER, self::ROLE ) );
 	}
 
+	/**
+	 * rawurlencode() leaves `..` alone, and a resolved `/members/../roles/R`
+	 * is DELETE /guilds/G/roles/R: the role deleted for everybody.
+	 */
+	public function test_an_id_that_is_not_a_snowflake_is_never_sent(): void {
+		$http   = Fake::strict();
+		$client = $this->client( $http );
+
+		$this->assertFalse( $client->remove_role( self::GUILD, '..', self::ROLE ) );
+		$this->assertFalse( $client->add_role( self::GUILD, '..', self::ROLE ) );
+		$this->assertFalse( $client->grant( '..', self::USER, 'user-token', self::ROLE ) );
+		$this->assertSame( Joined::Failed, $client->add_member( self::GUILD, self::USER, 'user-token', array( '../..' ) ) );
+		$this->assertSame( array(), $http->sent() );
+	}
+
+	public function test_an_id_that_is_not_a_snowflake_proves_nobody(): void {
+		$http = Fake::strict()
+			->on( 'POST', '*', new Response( true, 200, '{"access_token":"user-token"}' ) )
+			->on( 'GET', '*', new Response( true, 200, '{"id":".."}' ) );
+
+		$this->assertNull( $this->client( $http )->exchange( 'code', 'https://get.test/cb' ) );
+	}
+
+	public function test_a_token_that_is_not_a_string_proves_nobody(): void {
+		$http = Fake::strict()->on( 'POST', '*', new Response( true, 200, '{"access_token":["x"]}' ) );
+
+		$this->assertNull( $this->client( $http )->exchange( 'code', 'https://get.test/cb' ) );
+	}
+
 	public function test_joined_reads_discords_two_successes_apart(): void {
 		$this->assertSame( Joined::Added, Joined::from_status( 201 ) );
 		$this->assertSame( Joined::AlreadyMember, Joined::from_status( 204 ) );
@@ -154,6 +183,21 @@ final class ClientTest extends TestCase {
 		$this->assertSame( 'DiscordBot (https://shop.example, 2.1)', Client::user_agent( 'https://shop.example', '2.1' ) );
 		$this->assertSame( 'DiscordBot (https://a.example, 1)', Client::user_agent( 'https://a.example,(', '1)' ), 'Nothing can break out of the brackets.' );
 		$this->assertMatchesRegularExpression( '/^DiscordBot \(\S+, \S+\)$/', ( new \ReflectionClass( Client::class ) )->getConstructor()?->getParameters()[4]->getDefaultValue() );
+	}
+
+	public function test_the_user_agent_cannot_carry_a_line_break(): void {
+		$this->assertSame( 'DiscordBot (https://a.exampleX-Evil: 1, 1)', Client::user_agent( "https://a.example\r\nX-Evil: 1", "1\n" ) );
+	}
+
+	/* ─── Secrets ───────────────────────────────────────────────────── */
+
+	public function test_a_dump_does_not_show_the_secrets(): void {
+		$dump = print_r( $this->client( Fake::strict() ), true ) . print_r( new Identity( self::USER, 'user-token' ), true );
+
+		$this->assertStringNotContainsString( 'app-secret', $dump );
+		$this->assertStringNotContainsString( 'bot-token', $dump );
+		$this->assertStringNotContainsString( 'user-token', $dump );
+		$this->assertStringContainsString( self::USER, $dump );
 	}
 
 	/* ─── Permissions and configuration ─────────────────────────────── */

@@ -25,6 +25,8 @@ namespace SugarCommerce\Discord;
 final readonly class Identity {
 
 	/**
+	 * Who signed in, and the token that proved it.
+	 *
 	 * @since 1.0.0
 	 *
 	 * @param string $user  Their Discord user id (a snowflake).
@@ -34,4 +36,15 @@ final readonly class Identity {
 		public string $user,
 		#[\SensitiveParameter] public string $token,
 	) {}
+
+	/**
+	 * What var_dump() and print_r() show: the user, and the token redacted.
+	 *
+	 * @since 1.1.0
+	 *
+	 * @return array{user: string, token: string}
+	 */
+	public function __debugInfo(): array {
+		return array( 'user' => $this->user, 'token' => '' === $this->token ? '' : '[redacted]' );
+	}
 }
